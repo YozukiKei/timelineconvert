@@ -388,6 +388,7 @@ function update() {
   const text = document.getElementById('input').value;
   const fps = parseFloat(document.getElementById('fps').value);
   currentMarkers = parseInput(text);
+  saveSettings();
   currentOutput = currentFormat === 'tsv'
     ? genTSV(currentMarkers, fps)
     : currentFormat === 'edl'
@@ -472,7 +473,8 @@ function saveSettings() {
   try {
     const data = {
       fps: document.getElementById('fps').value,
-      format: currentFormat
+      format: currentFormat,
+      input: document.getElementById('input').value
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch(e) {}
@@ -489,6 +491,9 @@ function loadSettings() {
       document.querySelectorAll('.tab').forEach(t => {
         t.classList.toggle('active', t.dataset.fmt === data.format);
       });
+    }
+    if (typeof data.input === 'string') {
+      document.getElementById('input').value = data.input;
     }
   } catch(e) {}
 }
@@ -507,9 +512,9 @@ function resetSettings() {
 }
 
 loadSettings();
+update();
 </script>
 
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
-s
