@@ -1,12 +1,428 @@
 <!DOCTYPE html>
-  <html lang="ja">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Timeline Convert</title>
-    </head>
-    <body>
-      <div id="root"></div>
-      <script type="module" src="/main.jsx"></script>
-    </body>
-  </html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YT → Premiere Pro Markers</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0c0e;
+    --surface: #161618;
+    --surface2: #1e1e22;
+    --border: #2a2a30;
+    --accent: #ea4f6a;
+    --accent-dim: rgba(234,79,106,0.12);
+    --text: #e8e6e1;
+    --text2: #8a8890;
+    --text3: #5a5860;
+    --pr-blue: #00d4ff;
+    --pr-blue-dim: rgba(0,212,255,0.08);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    padding: 32px 20px; min-height: 100vh;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+
+  /* Header */
+  .header { margin-bottom: 36px; }
+  .header-row { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .logo {
+    width: 36px; height: 36px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), #9b59b6);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  h1 {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  }
+  .subtitle {
+    font-family: 'DM Sans', sans-serif;
+    color: var(--text2); font-size: 14px; padding-left: 48px;
+  }
+
+  /* Grid */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
+
+  /* Labels */
+  .label {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px; font-weight: 500; color: var(--text2);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+
+  /* Textarea */
+  textarea {
+    width: 100%; height: 320px; resize: none;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; color: var(--text); font-size: 13px;
+    font-family: 'JetBrains Mono', monospace; line-height: 2;
+  }
+  textarea:focus { outline: 1px solid var(--accent); outline-offset: 1px; }
+  textarea::placeholder { color: var(--text3); }
+
+  /* Panels */
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-top: 14px;
+  }
+
+  /* Settings rows */
+  .setting-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px; font-family: 'DM Sans', sans-serif; font-size: 13px;
+  }
+  .setting-row:last-child { margin-bottom: 0; }
+  select {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 10px; color: var(--text); font-size: 13px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  select:focus { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+  /* Buttons */
+  .btn {
+    padding: 8px 16px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text); font-family: 'DM Sans', sans-serif;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { border-color: var(--text3); background: var(--border); }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn-sm { padding: 4px 10px; font-size: 11px; }
+  .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-accent:hover:not(:disabled) { background: #d43d5a; border-color: #d43d5a; }
+
+  .tab-group { display: flex; gap: 4px; }
+  .tab {
+    padding: 6px 14px; border-radius: 5px; border: 1px solid transparent;
+    background: transparent; color: var(--text3);
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .tab.active {
+    background: var(--accent-dim); color: var(--accent);
+    border-color: rgba(234,79,106,0.25);
+  }
+  .tab:hover:not(.active) { color: var(--text2); }
+
+  /* Preview list */
+  .preview-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; height: 320px; overflow-y: auto;
+  }
+  .empty-state {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; flex-direction: column; gap: 8px;
+  }
+  .empty-state span:first-child { font-size: 28px; opacity: 0.3; }
+  .empty-state span:last-child { font-family: 'DM Sans', sans-serif; color: var(--text3); font-size: 13px; }
+
+  .marker-row {
+    display: flex; align-items: center; padding: 8px 16px; gap: 12px;
+    border-left: 3px solid transparent; transition: all 0.15s;
+    animation: fadeIn 0.2s ease both;
+  }
+  .marker-row:hover { background: var(--accent-dim); border-left-color: var(--accent); }
+  .tc {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--pr-blue); background: var(--pr-blue-dim);
+    padding: 3px 8px; border-radius: 4px; min-width: 72px;
+    text-align: center; font-weight: 500;
+  }
+  .marker-label {
+    font-size: 13px; font-family: 'DM Sans', sans-serif;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Actions bar */
+  .actions { margin-top: 14px; display: flex; gap: 8px; }
+  .actions .btn-accent { flex: 1; justify-content: center; }
+
+  /* Raw output */
+  .raw-output {
+    margin-top: 10px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px; max-height: 180px; overflow-y: auto;
+    display: none;
+  }
+  .raw-output.visible { display: block; }
+  .raw-output pre {
+    margin: 0; font-size: 11px; line-height: 1.6;
+    font-family: 'JetBrains Mono', monospace; color: var(--text2);
+    white-space: pre-wrap; word-break: break-all; user-select: all;
+  }
+
+  /* Hint */
+  .hint {
+    margin-top: 14px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; font-family: 'DM Sans', sans-serif;
+    font-size: 12px; color: var(--text3); line-height: 1.7;
+  }
+  .hint-title {
+    font-weight: 500; color: var(--text2); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px;
+  }
+  .hint code { color: var(--pr-blue); font-size: 11px; }
+  .hint .hl { color: var(--accent); }
+
+  /* Badge */
+  .count { margin-left: 8px; color: var(--accent); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="header">
+    <div class="header-row">
+      <div class="logo">▶</div>
+      <h1>YT → Premiere Pro Markers</h1>
+    </div>
+    <p class="subtitle">YouTubeのタイムスタンプをPremiere Proマーカーに変換</p>
+  </div>
+
+  <div class="grid">
+    <!-- Left -->
+    <div>
+      <div class="label-row">
+        <span class="label">タイムスタンプ入力</span>
+        <button class="btn btn-sm" onclick="insertSample()">サンプル挿入</button>
+      </div>
+      <textarea id="input" placeholder="0:00 イントロ&#10;0:45 第1章&#10;2:30 ハイライト&#10;5:12 重要ポイント" oninput="update()"></textarea>
+
+      <div class="panel">
+        <div class="setting-row" style="margin-bottom:14px">
+          <span class="label" style="margin-bottom:0">設定</span>
+          <button class="btn btn-sm" onclick="resetSettings()" title="設定を初期値に戻す">↻ リセット</button>
+        </div>
+        <div class="setting-row">
+          <span>フレームレート</span>
+          <select id="fps" onchange="saveSettings(); update()">
+            <option value="23.976">23.976 fps</option>
+            <option value="24">24 fps</option>
+            <option value="25">25 fps</option>
+            <option value="29.97">29.97 fps</option>
+            <option value="30" selected>30 fps</option>
+            <option value="59.94">59.94 fps</option>
+            <option value="60">60 fps</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <span>出力形式</span>
+          <div class="tab-group">
+            <button class="tab active" data-fmt="tsv" onclick="setFormat('tsv',this)">TSV</button>
+            <button class="tab" data-fmt="edl" onclick="setFormat('edl',this)">EDL</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right -->
+    <div>
+      <div class="label-row">
+        <span class="label">プレビュー<span class="count" id="count"></span></span>
+      </div>
+      <div class="preview-box" id="preview">
+        <div class="empty-state"><span>⏱</span><span>左にタイムスタンプを貼り付け</span></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-accent" id="btnCopy" disabled onclick="copyOutput()">📋 TSV をコピー</button>
+        <button class="btn" id="btnDl" disabled onclick="downloadOutput()">↓ 保存</button>
+        <button class="btn" id="btnRaw" disabled onclick="toggleRaw()">出力を表示</button>
+      </div>
+
+      <div class="raw-output" id="rawOutput"><pre id="rawPre"></pre></div>
+
+      <div class="hint">
+        <div class="hint-title">使い方</div>
+        <div><span class="hl">TSV</span> → <code>markers.tsv</code> で保存 → Premiere のマーカーパネル ☰ →「マーカーを読み込み」</div>
+        <div><span class="hl">EDL</span> → <code>markers.edl</code> で保存 → ファイル → 読み込み</div>
+        <div style="margin-top:6px;color:var(--text3)">※ ブラウザで直接開くだけで動きます。インストール不要。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentFormat = 'tsv';
+let currentMarkers = [];
+let currentOutput = '';
+
+const SAMPLE = `0:00 イントロ
+0:45 第1章：セットアップ
+2:30 ハイライト①
+5:12 重要ポイント
+8:00 第2章：実践編
+12:45 神プレイ
+15:30 まとめ`;
+
+function parseTimestamp(ts) {
+  const p = ts.split(':').map(Number);
+  if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
+  if (p.length === 2) return p[0]*60 + p[1];
+  return p[0];
+}
+
+function toSMPTE(sec, fps) {
+  const h = Math.floor(sec/3600);
+  const m = Math.floor((sec%3600)/60);
+  const s = Math.floor(sec%60);
+  const f = Math.round((sec%1)*fps);
+  return [h,m,s,f].map(v => String(v).padStart(2,'0')).join(':');
+}
+
+function parseInput(text) {
+  return text.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+    const m = line.match(/^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)$/);
+    if (!m) return null;
+    return { time: m[1], seconds: parseTimestamp(m[1]), label: m[2].trim() };
+  }).filter(Boolean);
+}
+
+function genTSV(markers, fps) {
+  const hdr = 'Marker Name\tDescription\tIn\tOut\tDuration\tMarker Type';
+  const rows = markers.map(m => {
+    const tc = toSMPTE(m.seconds, fps);
+    return `${m.label}\t\t${tc}\t${tc}\t00:00:00:01\tComment`;
+  });
+  return hdr + '\n' + rows.join('\n');
+}
+
+function genEDL(markers, fps) {
+  let out = 'TITLE: YouTube Markers\nFCM: NON-DROP FRAME\n\n';
+  markers.forEach((m,i) => {
+    const tc = toSMPTE(m.seconds, fps);
+    out += `${String(i+1).padStart(3,'0')}  001      V     C        ${tc} ${tc} ${tc} ${tc}\n`;
+    out += `* FROM CLIP NAME: ${m.label}\n`;
+    out += `* COMMENT: ${m.label}\n\n`;
+  });
+  return out;
+}
+
+function update() {
+  const text = document.getElementById('input').value;
+  const fps = parseFloat(document.getElementById('fps').value);
+  currentMarkers = parseInput(text);
+  currentOutput = currentFormat === 'tsv' ? genTSV(currentMarkers, fps) : genEDL(currentMarkers, fps);
+
+  const preview = document.getElementById('preview');
+  const has = currentMarkers.length > 0;
+
+  document.getElementById('count').textContent = has ? `${currentMarkers.length} markers` : '';
+  document.getElementById('btnCopy').disabled = !has;
+  document.getElementById('btnDl').disabled = !has;
+  document.getElementById('btnRaw').disabled = !has;
+  document.getElementById('btnCopy').textContent = `📋 ${currentFormat.toUpperCase()} をコピー`;
+  document.getElementById('rawPre').textContent = currentOutput;
+
+  if (!has) {
+    preview.innerHTML = '<div class="empty-state"><span>⏱</span><span>左にタイムスタンプを貼り付け</span></div>';
+    return;
+  }
+
+  preview.innerHTML = '<div style="padding:8px 0">' + currentMarkers.map((m,i) =>
+    `<div class="marker-row" style="animation-delay:${i*40}ms">
+      <span class="tc">${toSMPTE(m.seconds, fps)}</span>
+      <span class="marker-label">${esc(m.label)}</span>
+    </div>`
+  ).join('') + '</div>';
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function insertSample() {
+  document.getElementById('input').value = SAMPLE;
+  update();
+}
+
+function setFormat(fmt, btn) {
+  currentFormat = fmt;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  saveSettings();
+  update();
+}
+
+function copyOutput() {
+  navigator.clipboard.writeText(currentOutput).then(() => {
+    const btn = document.getElementById('btnCopy');
+    btn.textContent = '✓ コピー済！';
+    setTimeout(() => { btn.textContent = `📋 ${currentFormat.toUpperCase()} をコピー`; }, 1800);
+  });
+}
+
+function downloadOutput() {
+  const bom = '\uFEFF';
+  const ext = currentFormat === 'tsv' ? 'tsv' : 'edl';
+  const mime = currentFormat === 'tsv' ? 'text/tab-separated-values' : 'text/plain';
+  const blob = new Blob([bom + currentOutput], { type: mime + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `markers.${ext}`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function toggleRaw() {
+  const el = document.getElementById('rawOutput');
+  const btn = document.getElementById('btnRaw');
+  el.classList.toggle('visible');
+  btn.textContent = el.classList.contains('visible') ? '隠す' : '出力を表示';
+}
+
+const DEFAULTS = { fps: '30', format: 'tsv' };
+const STORAGE_KEY = 'yt2pp_settings';
+
+function saveSettings() {
+  try {
+    const data = {
+      fps: document.getElementById('fps').value,
+      format: currentFormat
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch(e) {}
+}
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.fps) document.getElementById('fps').value = data.fps;
+    if (data.format) {
+      currentFormat = data.format;
+      document.querySelectorAll('.tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.fmt === data.format);
+      });
+    }
+  } catch(e) {}
+}
+
+function resetSettings() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
+  document.getElementById('fps').value = DEFAULTS.fps;
+  currentFormat = DEFAULTS.format;
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.fmt === DEFAULTS.format);
+  });
+  document.getElementById('input').value = '';
+  document.getElementById('rawOutput').classList.remove('visible');
+  document.getElementById('btnRaw').textContent = '出力を表示';
+  update();
+}
+
+loadSettings();
+</script>
+
+</body>
+</html>
