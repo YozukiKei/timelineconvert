@@ -220,6 +220,7 @@
           <div class="tab-group">
             <button class="tab active" data-fmt="tsv" onclick="setFormat('tsv',this)">TSV</button>
             <button class="tab" data-fmt="edl" onclick="setFormat('edl',this)">EDL</button>
+            <button class="tab" data-fmt="xml" onclick="setFormat('xml',this)">XML</button>
           </div>
         </div>
       </div>
@@ -246,6 +247,9 @@
         <div class="hint-title">使い方</div>
         <div><span class="hl">TSV</span> → <code>markers.tsv</code> で保存 → Premiere のマーカーパネル ☰ →「マーカーを読み込み」</div>
         <div><span class="hl">EDL</span> → <code>markers.edl</code> で保存 → ファイル → 読み込み</div>
+        <div><span class="hl">XML</span> → <code>markers.xml</code> で保存 → Premiere で <code>File / ファイル → Import / 読み込み</code></div>
+        <div style="margin-top:6px;color:var(--text3)">※ EDL は旧来のASCII系フォーマットです。この版では日本語ラベルを安全に扱えるよう、EDL内はASCIIセーフ化しつつ、日本語は <code>\\uXXXX</code> 形式でコメントに保持します。</div>
+        <div style="margin-top:6px;color:var(--text3)">※ XML は Final Cut Pro 7 互換の <code>xmeml</code> 形式で、シーケンスマーカーとして書き出します。</div>
         <div style="margin-top:6px;color:var(--text3)">※ ブラウザで直接開くだけで動きます。インストール不要。</div>
       </div>
     </div>
@@ -272,12 +276,35 @@ function parseTimestamp(ts) {
   return p[0];
 }
 
+function getRateInfo(fps) {
+  if (Math.abs(fps - 23.976) < 0.001) return { timebase: 24, ntsc: 'TRUE' };
+  if (Math.abs(fps - 29.97) < 0.001) return { timebase: 30, ntsc: 'TRUE' };
+  if (Math.abs(fps - 59.94) < 0.001) return { timebase: 60, ntsc: 'TRUE' };
+  return { timebase: Math.round(fps), ntsc: 'FALSE' };
+}
+
+function secondsToFrames(sec, fps) {
+  const rate = getRateInfo(fps);
+  return Math.round(sec * rate.timebase);
+}
+
 function toSMPTE(sec, fps) {
+  const rate = getRateInfo(fps);
   const h = Math.floor(sec/3600);
   const m = Math.floor((sec%3600)/60);
   const s = Math.floor(sec%60);
-  const f = Math.round((sec%1)*fps);
+  let f = Math.round((sec%1)*rate.timebase);
+  if (f >= rate.timebase) f = 0;
   return [h,m,s,f].map(v => String(v).padStart(2,'0')).join(':');
+}
+
+function xmlEscape(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 function parseInput(text) {
@@ -286,6 +313,33 @@ function parseInput(text) {
     if (!m) return null;
     return { time: m[1], seconds: parseTimestamp(m[1]), label: m[2].trim() };
   }).filter(Boolean);
+}
+
+function normalizeLabel(label) {
+  return (label || '')
+    .normalize('NFKC')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toUnicodeEscaped(str) {
+  let out = '';
+  for (const ch of normalizeLabel(str)) {
+    const cp = ch.codePointAt(0);
+    out += (cp >= 0x20 && cp <= 0x7E) ? ch : `\\u${cp.toString(16).toUpperCase().padStart(4,'0')}`;
+  }
+  return out;
+}
+
+function toAsciiSafeEDLLabel(label, index) {
+  const normalized = normalizeLabel(label);
+  const ascii = normalized
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/[^\x20-\x7E]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return ascii || `MARKER_${String(index + 1).padStart(3,'0')}`;
 }
 
 function genTSV(markers, fps) {
@@ -298,21 +352,47 @@ function genTSV(markers, fps) {
 }
 
 function genEDL(markers, fps) {
-  let out = 'TITLE: YouTube Markers\nFCM: NON-DROP FRAME\n\n';
+  let out = 'TITLE: YT_MARKERS\nFCM: NON-DROP FRAME\n* CHARSET: ASCII-SAFE / JP IN UNICODE ESCAPES\n\n';
   markers.forEach((m,i) => {
     const tc = toSMPTE(m.seconds, fps);
+    const asciiLabel = toAsciiSafeEDLLabel(m.label, i);
+    const escapedJP = toUnicodeEscaped(m.label);
     out += `${String(i+1).padStart(3,'0')}  001      V     C        ${tc} ${tc} ${tc} ${tc}\n`;
-    out += `* FROM CLIP NAME: ${m.label}\n`;
-    out += `* COMMENT: ${m.label}\n\n`;
+    out += `* FROM CLIP NAME: ${asciiLabel}\n`;
+    out += `* COMMENT: ${escapedJP}\n\n`;
   });
   return out;
+}
+
+function genXML(markers, fps) {
+  const rate = getRateInfo(fps);
+  const duration = Math.max(rate.timebase * 10, ...markers.map(m => secondsToFrames(m.seconds, fps))) + rate.timebase * 10;
+  const markerXML = markers.map(m => {
+    const frame = secondsToFrames(m.seconds, fps);
+    const label = xmlEscape(normalizeLabel(m.label));
+    const comment = xmlEscape(`${m.time} ${normalizeLabel(m.label)}`);
+    return [
+      '    <marker>',
+      `      <name>${label}</name>`,
+      `      <in>${frame}</in>`,
+      `      <out>${frame}</out>`,
+      `      <comment>${comment}</comment>`,
+      '    </marker>'
+    ].join('\n');
+  }).join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<xmeml version="5">\n  <sequence>\n    <name>YouTube Timeline Markers</name>\n    <duration>${duration}</duration>\n    <rate>\n      <timebase>${rate.timebase}</timebase>\n      <ntsc>${rate.ntsc}</ntsc>\n    </rate>\n${markerXML}\n    <media>\n      <video>\n        <format>\n          <samplecharacteristics>\n            <rate>\n              <timebase>${rate.timebase}</timebase>\n              <ntsc>${rate.ntsc}</ntsc>\n            </rate>\n            <width>1920</width>\n            <height>1080</height>\n            <anamorphic>FALSE</anamorphic>\n            <pixelaspectratio>square</pixelaspectratio>\n            <fielddominance>none</fielddominance>\n          </samplecharacteristics>\n        </format>\n      </video>\n      <audio>\n        <format>\n          <samplecharacteristics>\n            <depth>16</depth>\n            <samplerate>48000</samplerate>\n          </samplecharacteristics>\n        </format>\n      </audio>\n    </media>\n  </sequence>\n</xmeml>\n`;
 }
 
 function update() {
   const text = document.getElementById('input').value;
   const fps = parseFloat(document.getElementById('fps').value);
   currentMarkers = parseInput(text);
-  currentOutput = currentFormat === 'tsv' ? genTSV(currentMarkers, fps) : genEDL(currentMarkers, fps);
+  currentOutput = currentFormat === 'tsv'
+    ? genTSV(currentMarkers, fps)
+    : currentFormat === 'edl'
+      ? genEDL(currentMarkers, fps)
+      : genXML(currentMarkers, fps);
 
   const preview = document.getElementById('preview');
   const has = currentMarkers.length > 0;
@@ -361,10 +441,15 @@ function copyOutput() {
 }
 
 function downloadOutput() {
-  const bom = '\uFEFF';
-  const ext = currentFormat === 'tsv' ? 'tsv' : 'edl';
-  const mime = currentFormat === 'tsv' ? 'text/tab-separated-values' : 'text/plain';
-  const blob = new Blob([bom + currentOutput], { type: mime + ';charset=utf-8' });
+  const ext = currentFormat === 'tsv' ? 'tsv' : currentFormat === 'edl' ? 'edl' : 'xml';
+  const mime = currentFormat === 'tsv'
+    ? 'text/tab-separated-values'
+    : currentFormat === 'edl'
+      ? 'text/plain'
+      : 'application/xml';
+  const payload = currentFormat === 'tsv' ? ('\uFEFF' + currentOutput) : currentOutput;
+  const charset = currentFormat === 'edl' ? 'us-ascii' : 'utf-8';
+  const blob = new Blob([payload], { type: mime + ';charset=' + charset });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = `markers.${ext}`;
@@ -424,5 +509,6 @@ function resetSettings() {
 loadSettings();
 </script>
 
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
